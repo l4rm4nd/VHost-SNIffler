@@ -168,6 +168,8 @@ def main():
                 all_results[status_code].append(result)
 
     # Print results grouped by status codes as JSON
+    print("------------------------------------------------------------")
+    print()
     print(json.dumps(all_results, indent=4))
 
 if __name__ == "__main__":
