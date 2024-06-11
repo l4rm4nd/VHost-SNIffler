@@ -43,7 +43,7 @@ def print_colored_output(protocol, hostname, status_code, title, cert_info, as_i
     else:
         color = Fore.RED
 
-    print(f"{color}{protocol}://{hostname} [{status_code}] [{title}] [{cert_info}] [{as_info}] [{ip_address}]")
+    print(f"{color}{protocol}://{hostname} [{status_code}] [{title}] [{cert_info}] [{as_info}] [{ip_address}]{"Fore.RESET"}")
 
 def test_vhosts(ip_address, hostnames):
     results = []
