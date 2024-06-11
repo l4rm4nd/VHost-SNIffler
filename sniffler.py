@@ -34,7 +34,7 @@ def get_as_info(ip_address):
     except Exception as e:
         return f"Error retrieving AS info: {e}"
 
-def print_colored_output(protocol, hostname, status_code, title, cert_info, as_info, ip_address):
+def print_colored_output(protocol, hostname, status_code, title, cert_info, as_info, ip_address, redirect_location=None):
     if status_code in [401, 403]:
         color = Fore.YELLOW
     elif 200 <= status_code < 300:
@@ -46,82 +46,61 @@ def print_colored_output(protocol, hostname, status_code, title, cert_info, as_i
     else:
         color = Fore.RED
 
-    print(f"{color}{protocol}://{hostname} [{status_code}] [{title}] [{cert_info}] [{as_info}] [{ip_address}]{Style.RESET_ALL}")
+    redirect_info = f" [Redirects to: {redirect_location}]" if redirect_location else ""
+    print(f"{color}{protocol}://{hostname} [{status_code}] [{title}] [{cert_info}] [{as_info}] [{ip_address}]{redirect_info}{Style.RESET_ALL}")
+
+def is_port_open(ip, port):
+    try:
+        sock = socket.create_connection((ip, port), timeout=4)
+        sock.close()
+        return True
+    except (socket.timeout, socket.error):
+        return False
 
 def test_vhosts(ip_address, hostnames):
     results = []
 
     for hostname in hostnames:
-        for protocol in ['http', 'https']:
-            try:
-                if protocol == 'http':
-                    url = f"{protocol}://{ip_address}"
-                    headers = {"Host": hostname}
+        try:
+            # Handle HTTPS manually to extract certificate info
+            context = ssl.create_default_context()
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_OPTIONAL
 
-                    # Send the request with a 4-second timeout
-                    response = requests.get(url, headers=headers, timeout=4)
-                    html_content = response.text
-                    title = extract_title(html_content)
+            conn = socket.create_connection((ip_address, 443), timeout=4)
+            ssl_conn = context.wrap_socket(conn, server_hostname=hostname)
 
-                    cert_info = "N/A"
+            cert = ssl_conn.getpeercert()
+            cert_info = get_certificate_info(cert)
 
-                    as_info = get_as_info(ip_address)
-                    print_colored_output(protocol, hostname, response.status_code, title, cert_info, as_info, ip_address)
+            http_conn = http.client.HTTPSConnection(ip_address, context=context)
+            http_conn.sock = ssl_conn
+            http_conn.request("GET", "/", headers={"Host": hostname})
+            response = http_conn.getresponse()
+            html_content = response.read().decode('utf-8')
+            title = extract_title(html_content)
 
-                    results.append({
-                        "protocol": protocol,
-                        "hostname": hostname,
-                        "status_code": response.status_code,
-                        "title": title,
-                        "cert_info": cert_info,
-                        "as_info": as_info,
-                        "ip_address": ip_address
-                    })
+            as_info = get_as_info(ip_address)
+            redirect_location = response.getheader('Location') if 300 <= response.status < 400 else None
+            print_colored_output('https', hostname, response.status, title, cert_info, as_info, ip_address, redirect_location)
 
-                else:
-                    # Handle HTTPS manually to extract certificate info
-                    context = ssl.create_default_context()
-                    context.check_hostname = True
-                    context.verify_mode = ssl.CERT_OPTIONAL
+            results.append({
+                "protocol": 'https',
+                "hostname": hostname,
+                "status_code": response.status,
+                "title": title,
+                "cert_info": cert_info,
+                "as_info": as_info,
+                "ip_address": ip_address,
+                "redirect_location": redirect_location
+            })
 
-                    conn = socket.create_connection((ip_address, 443), timeout=4)
-                    ssl_conn = context.wrap_socket(conn, server_hostname=hostname)
-
-                    cert = ssl_conn.getpeercert()
-                    cert_info = get_certificate_info(cert)
-
-                    http_conn = http.client.HTTPSConnection(ip_address, context=context)
-                    http_conn.sock = ssl_conn
-                    http_conn.request("GET", "/", headers={"Host": hostname})
-                    response = http_conn.getresponse()
-                    html_content = response.read().decode('utf-8')
-                    title = extract_title(html_content)
-
-                    as_info = get_as_info(ip_address)
-                    print_colored_output(protocol, hostname, response.status, title, cert_info, as_info, ip_address)
-
-                    results.append({
-                        "protocol": protocol,
-                        "hostname": hostname,
-                        "status_code": response.status,
-                        "title": title,
-                        "cert_info": cert_info,
-                        "as_info": as_info,
-                        "ip_address": ip_address
-                    })
-
-            except requests.exceptions.RequestException as e:
-                results.append({
-                    "protocol": protocol,
-                    "hostname": hostname,
-                    "error": f"Error: {e}"
-                })
-            except (ssl.SSLError, socket.timeout, http.client.HTTPException) as e:
-                results.append({
-                    "protocol": protocol,
-                    "hostname": hostname,
-                    "error": f"Error: {e}"
-                })
+        except (ssl.SSLError, socket.timeout, http.client.HTTPException) as e:
+            results.append({
+                "protocol": 'https',
+                "hostname": hostname,
+                "error": f"Error: {e}"
+            })
 
     return results
 
@@ -145,15 +124,18 @@ def main():
     else:
         domains = [args.domain]
 
-    all_results = defaultdict(list)
-
     if args.ip_file:
         with open(args.ip_file, 'r') as ip_file:
             ip_addresses = ip_file.read().splitlines()
     else:
         ip_addresses = [args.ip]
 
-    for ip_address in ip_addresses:
+    # Check if port 443 is open on the IPs
+    valid_ips = [ip for ip in ip_addresses if is_port_open(ip, 443)]
+    
+    all_results = defaultdict(list)
+    
+    for ip_address in valid_ips:
         for domain in domains:
             hostnames = []
             for word in words:
