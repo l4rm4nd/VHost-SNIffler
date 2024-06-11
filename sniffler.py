@@ -9,6 +9,9 @@ from bs4 import BeautifulSoup
 from colorama import Fore, Style, init
 from ipwhois import IPWhois
 
+# Initialize colorama
+init(autoreset=True)
+
 def extract_title(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
     title_tag = soup.find('title')
@@ -43,7 +46,7 @@ def print_colored_output(protocol, hostname, status_code, title, cert_info, as_i
     else:
         color = Fore.RED
 
-    print(f"{color}{protocol}://{hostname} [{status_code}] [{title}] [{cert_info}] [{as_info}] [{ip_address}]{"Fore.RESET"}")
+    print(f"{color}{protocol}://{hostname} [{status_code}] [{title}] [{cert_info}] [{as_info}] [{ip_address}]{Style.RESET_ALL}")
 
 def test_vhosts(ip_address, hostnames):
     results = []
